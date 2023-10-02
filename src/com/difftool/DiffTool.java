@@ -12,8 +12,8 @@ import java.util.*;
 public class DiffTool {
     public static List<ChangeType> diff(Object previous, Object current) {
         List<ChangeType> changes = new ArrayList<>();
-        Map<String, Object> previousMap = new HashMap<>();
-        Map<String, Object> currentMap = new HashMap<>();
+        Map<String, Object> previousMap;
+        Map<String, Object> currentMap;
 
         if (previous == null && current == null) {
             return changes;
@@ -29,14 +29,11 @@ public class DiffTool {
             throw new IllegalArgumentException("Objects must be of the same type");
         }
 
-        for (Field field : previous.getClass().getDeclaredFields()) {
-            try {
-                field.setAccessible(true);
-                previousMap.put(field.getName(), field.get(previous));
-                currentMap.put(field.getName(), field.get(current));
-            } catch (InaccessibleObjectException | IllegalAccessException e) {
-                return null;
-            }
+        previousMap = getFields(previous);
+        currentMap = getFields(current);
+
+        if (previousMap == null || currentMap == null) {
+            return null;
         }
 
         for (Map.Entry<String, Object> entry : previousMap.entrySet()) {
@@ -62,46 +59,46 @@ public class DiffTool {
                 List<Object> previousList = (List<Object>) previousValue;
                 List<Object> currentList = (List<Object>) currentValue;
 
-                for (int i = 0; i < previousList.size(); i++) {
-                    Object previousListItem;
-                    try {
-                        previousListItem = previousList.get(i);
-                    } catch (IndexOutOfBoundsException e) {
-                        changes.add(new ListUpdate(property, new ArrayList<>(), currentList));
-                        break;
-                    }
-                    Object currentListItem;
-                    try {
-                        currentListItem = currentList.get(i);
-                    } catch (IndexOutOfBoundsException e) {
-                        changes.add(new ListUpdate(property, previousList, new ArrayList<>()));
-                        break;
-                    }
-                    List<ChangeType> nestedChanges = diff(previousListItem, currentListItem);
-                    if (nestedChanges == null) {
-                        if (!previousListItem.equals(currentListItem)) {
-                            changes.add(new PropertyUpdate(property, previousListItem, currentListItem));
-                        }
-                    } else {
-                        for (ChangeType change : nestedChanges) {
-                            if (change instanceof PropertyUpdate propertyUpdate) {
-                                for (Field field : previousList.get(i).getClass().getDeclaredFields()) {
-                                    try {
-                                        if (field.getName().equalsIgnoreCase("id") || field.getAnnotation(AuditKey.class) != null) {
-                                            field.setAccessible(true);
-                                            propertyUpdate.setProperty(property + "[" + field.get(previousList.get(i)) + "]." + propertyUpdate.getProperty());
-                                            break;
-                                        } else {
-                                            throw new IllegalArgumentException("Objects must have an id field");
-                                        }
-                                    } catch (IllegalAccessException | InaccessibleObjectException e) {
-                                        return null;
+                if (itHasProperties(previousList.get(0))) {
+                    // is a list of objects
+                    for (int i = 0; i < previousList.size(); i++) {
+                        Object previousListItem = previousList.get(i);
+                        Object currentListItem = currentList.get(i);
+
+                        List<ChangeType> nestedChanges = diff(previousListItem, currentListItem);
+                        if (nestedChanges == null) {
+                            if (!previousListItem.equals(currentListItem)) {
+                                changes.add(new PropertyUpdate(property, previousListItem, currentListItem));
+                            }
+                        } else {
+                            for (ChangeType change : nestedChanges) {
+                                if (change instanceof PropertyUpdate propertyUpdate) {
+                                    String idField = getIdField(previousListItem);
+                                    if (idField != null) {
+                                        propertyUpdate.setProperty(property + "[" + idField + "]." + propertyUpdate.getProperty());
+                                    } else {
+                                        throw new IllegalArgumentException("Objects must have an id field");
                                     }
                                 }
                             }
+                            changes.addAll(nestedChanges);
                         }
-                        changes.addAll(nestedChanges);
                     }
+                } else {
+                    // is a list of primitives
+                    List<Object> added = new ArrayList<>();
+                    List<Object> removed = new ArrayList<>();
+                    for (Object previousListItem : previousList) {
+                        if (!currentList.contains(previousListItem)) {
+                            removed.add(previousListItem);
+                        }
+                    }
+                    for (Object currentListItem : currentList) {
+                        if (!previousList.contains(currentListItem)) {
+                            added.add(currentListItem);
+                        }
+                    }
+                    changes.add(new ListUpdate(property, added, removed));
                 }
             } else if (!previousValue.equals(currentValue)) {
                 //Determine if is a nested property and add property name to the path
@@ -124,7 +121,7 @@ public class DiffTool {
         return changes;
     }
 
-    private Map<String, Object> getFields(Object object) {
+    private static Map<String, Object> getFields(Object object) {
         Map<String, Object> fields = new HashMap<>();
         for (Field field : object.getClass().getDeclaredFields()) {
             try {
@@ -137,20 +134,21 @@ public class DiffTool {
         return fields;
     }
 
-    private boolean itHasIdField(Object object) {
+    private static String getIdField(Object object) {
         for (Field field : object.getClass().getDeclaredFields()) {
             try {
                 if (field.getName().equalsIgnoreCase("id") || field.getAnnotation(AuditKey.class) != null) {
-                    return true;
+                    field.setAccessible(true);
+                    return field.get(object).toString();
                 }
-            } catch (InaccessibleObjectException e) {
-                return false;
+            } catch (IllegalAccessException | InaccessibleObjectException e) {
+                return null;
             }
         }
-        return false;
+        return null;
     }
 
-    private boolean itHasProperties(Object object) {
+    private static boolean itHasProperties(Object object) {
         for (Field field : object.getClass().getDeclaredFields()) {
             try {
                 field.setAccessible(true);
