@@ -77,7 +77,7 @@ public class DiffTool {
                                     if (idField != null) {
                                         propertyUpdate.setProperty(property + "[" + idField + "]." + propertyUpdate.getProperty());
                                     } else {
-                                        throw new IllegalArgumentException("Objects must have an id field");
+                                        throw new IllegalArgumentException("The object in the list has no id or AuditKey annotation");
                                     }
                                 }
                             }
