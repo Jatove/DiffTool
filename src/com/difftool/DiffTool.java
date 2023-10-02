@@ -1,10 +1,10 @@
 package com.difftool;
 
-import com.difftool.util.AuditKey;
 import com.difftool.util.ChangeType;
 import com.difftool.util.ListUpdate;
 import com.difftool.util.PropertyUpdate;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InaccessibleObjectException;
 import java.util.*;
@@ -137,7 +137,14 @@ public class DiffTool {
     private static String getIdField(Object object) {
         for (Field field : object.getClass().getDeclaredFields()) {
             try {
-                if (field.getName().equalsIgnoreCase("id") || field.getAnnotation(AuditKey.class) != null) {
+                boolean exists = false;
+                for (Annotation annotation : field.getAnnotations()) {
+                    if (annotation.annotationType().getName().contains("AuditKey")) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (field.getName().equalsIgnoreCase("id") || exists) {
                     field.setAccessible(true);
                     return field.get(object).toString();
                 }
